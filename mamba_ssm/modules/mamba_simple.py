@@ -124,12 +124,9 @@ class Mamba(nn.Module):
         batch, seqlen, dim = hidden_states.shape
 
         conv_state, ssm_state = None, None
-        if inference_params is not None:
-            conv_state, ssm_state = self._get_states_from_cache(inference_params, batch)
-            if inference_params.seqlen_offset > 0:
-                # The states are updated inplace
-                out, _, _ = self.step(hidden_states, conv_state, ssm_state)
-                return out
+        conv_state, ssm_state = self._get_states_from_cache(inference_params, batch)
+        out, _, _ = self.step(hidden_states, conv_state, ssm_state)
+        return out
 
         # We do matmul and transpose BLH -> HBL at the same time
         xz = rearrange(

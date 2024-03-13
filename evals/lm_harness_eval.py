@@ -16,16 +16,26 @@ class MambaEvalWrapper(HFLM):
 
     AUTO_MODEL_CLASS = transformers.AutoModelForCausalLM
 
-    def __init__(self, pretrained="state-spaces/mamba-2.8b", max_length=2048, batch_size=None, device="cuda",
-                 dtype=torch.float16):
+    def __init__(
+        self,
+        pretrained="state-spaces/mamba-2.8b",
+        max_length=2048,
+        batch_size=None,
+        device="cuda",
+        dtype=torch.bfloat16,
+    ):
         LM.__init__(self)
-        self._model = MambaLMHeadModel.from_pretrained(pretrained, device=device, dtype=dtype)
+        self._model = MambaLMHeadModel.from_pretrained(
+            pretrained, device=device, dtype=dtype
+        )
         self.tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neox-20b")
         self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
         self.vocab_size = self.tokenizer.vocab_size
         self._batch_size = int(batch_size) if batch_size is not None else 64
         self._max_length = max_length
         self._device = torch.device(device)
+        self._model.max_length = int(max_length)
+        self._model.batch_size = int(batch_size)
 
     @property
     def batch_size(self):

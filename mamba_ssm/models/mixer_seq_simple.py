@@ -12,7 +12,7 @@ import torch.nn as nn
 
 from mamba_ssm.models.config_mamba import MambaConfig
 from mamba_ssm.modules.mamba_simple import Mamba, Block
-from mamba_ssm.utils.generation import GenerationMixin
+from mamba_ssm.utils.generation import GenerationMixin, InferenceParams
 from mamba_ssm.utils.hf import load_config_hf, load_state_dict_hf
 
 try:
@@ -231,10 +231,18 @@ class MambaLMHeadModel(nn.Module, GenerationMixin):
         "position_ids" is just to be compatible with Transformer generation. We don't use it.
         num_last_tokens: if > 0, only return the logits for the last n tokens
         """
-        hidden_states = self.backbone(input_ids, inference_params=inference_params)
-        if num_last_tokens > 0:
-            hidden_states = hidden_states[:, -num_last_tokens:]
-        lm_logits = self.lm_head(hidden_states)
+        if inference_params is None:
+            inference_params = InferenceParams(max_seqlen=self.max_length, max_batch_size=self.batch_size)
+
+        def fwd(inputs):
+            hidden_states = self.backbone(inputs, inference_params=inference_params)
+            return self.lm_head(hidden_states)
+
+        input_ids = input_ids.split(1, dim=-1)
+        res = []
+        for idx in range(len(input_ids)):
+            res.append(fwd(input_ids[idx]))
+        lm_logits = torch.cat(res[-num_last_tokens:], dim=1)
         CausalLMOutput = namedtuple("CausalLMOutput", ["logits"])
         return CausalLMOutput(logits=lm_logits)
 
@@ -242,6 +250,7 @@ class MambaLMHeadModel(nn.Module, GenerationMixin):
     def from_pretrained(cls, pretrained_model_name, device=None, dtype=None, **kwargs):
         config_data = load_config_hf(pretrained_model_name)
         config = MambaConfig(**config_data)
+        config.residual_in_fp32 = False
         model = cls(config, device=device, dtype=dtype, **kwargs)
         model.load_state_dict(load_state_dict_hf(pretrained_model_name, device=device, dtype=dtype))
         return model
