@@ -1,4 +1,5 @@
 import argparse
+import pickle
 
 import torch
 import torch.nn.functional as F
@@ -36,6 +37,11 @@ def register_activation_hooks(
     return activations
 
 
+def serialize_and_save_to_disk(filename: str, activation: DefaultDict[str, List[torch.Tensor]]) -> None:
+    with open(filename, 'wb') as handle:
+            pickle.dump(activation, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 def generate_through_decode(
     model,
     tokenizer,
@@ -56,6 +62,7 @@ def generate_through_decode(
                 indices_to_input[:, token_n].unsqueeze(1),
                 inference_params=inference_params,
             ).logits
+            inference_params.seqlen_offset += 1
 
         probs = F.softmax(next_token_logits, dim=-1)
         (batch, _, vocab_size) = probs.shape
@@ -81,7 +88,7 @@ def generate_through_decode(
 parser = argparse.ArgumentParser(description="Decode testing")
 parser.add_argument("--model-name", type=str, default="state-spaces/mamba-370m")
 parser.add_argument("--prompt", type=str, default="Mamba is the")
-parser.add_argument("--genlen", type=int, default=51)
+parser.add_argument("--genlen", type=int, default=10)
 parser.add_argument("--batch", type=int, default=1)
 args = parser.parse_args()
 
@@ -90,11 +97,12 @@ random.seed(0)
 torch.random.manual_seed(0)
 
 device = "cuda"
-dtype = torch.float16
+dtype = torch.bfloat16
 
 print(f"Loading model {args.model_name}")
 tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neox-20b")
 model = MambaLMHeadModel.from_pretrained(args.model_name, device=device, dtype=dtype)
+
 model.eval()
 
 act = register_activation_hooks(model)
@@ -103,3 +111,4 @@ print(
         model, tokenizer, prompt=args.prompt, n_tokens_to_gen=args.genlen
     )
 )
+serialize_and_save_to_disk(f"{args.model_name.replace('/', '_')}_{args.genlen}_{dtype}_{args.prompt.replace(' ', '_')}.pickle", act)
